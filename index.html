@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light}body{margin:0;font:14px system-ui,-apple-system,"Segoe UI",sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Expiry Vendor Requests</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Layout: one working column — stock file, then the request builder (search → material → lines → batch changes) */
+:root{
+  --bg:#f3f6f6; --surface:#ffffff; --surface-2:#e9eff0; --line:#d3dcde;
+  --fg:#14262b; --muted:#5b6f74; --accent:#0b6e79; --accent-fg:#ffffff; --accent-soft:#d9eef0;
+  --warn:#9a5b00; --warn-soft:#fdf0d8; --bad:#b3261e; --bad-soft:#fbe3e1; --ok:#1e7a46; --ok-soft:#dcf2e4;
+  --f-sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Consolas,monospace;
+  --r:8px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1719; --surface:#152225; --surface-2:#1c2c30; --line:#2b3f44;
+  --fg:#e3eced; --muted:#93a7ab; --accent:#4cc3cf; --accent-fg:#06262a; --accent-soft:#183a3f;
+  --warn:#f0b354; --warn-soft:#3a2c12; --bad:#ff8a80; --bad-soft:#3d1c1a; --ok:#6fd49a; --ok-soft:#173526; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1719; --surface:#152225; --surface-2:#1c2c30; --line:#2b3f44;
+  --fg:#e3eced; --muted:#93a7ab; --accent:#4cc3cf; --accent-fg:#06262a; --accent-soft:#183a3f;
+  --warn:#f0b354; --warn-soft:#3a2c12; --bad:#ff8a80; --bad-soft:#3d1c1a; --ok:#6fd49a; --ok-soft:#173526; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-sans);font-size:14px;line-height:1.45}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:20px 60px;display:flex;flex-direction:column;gap:18px}
+header.top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:22px;margin:0;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--muted);margin:2px 0 0;font-size:13px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;min-width:0}
+.panel h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:600}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.spacer{flex:1}
+button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:8px 14px;font-weight:500}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button.primary:hover{filter:brightness(1.08)}
+button.big{padding:12px 22px;font-size:15px}
+button.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+button.ghost:hover{color:var(--bad)}
+button:disabled{opacity:.45;cursor:not-allowed}
+input[type=text],input[type=number]{font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:9px 11px;min-width:0}
+/* drop zone */
+.drop{border:1.5px dashed var(--line);border-radius:var(--r);padding:26px 16px;text-align:center;display:flex;flex-direction:column;gap:8px;align-items:center;cursor:pointer;background:var(--surface-2)}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop b{font-size:15px}
+.cols{font-family:var(--f-mono);font-size:11.5px;color:var(--muted);max-width:640px}
+.stats{display:flex;gap:22px;flex-wrap:wrap}
+.stat{display:flex;flex-direction:column}
+.stat .v{font-family:var(--f-mono);font-size:18px;font-weight:600}
+.stat .k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+/* supplier chip */
+.chip{display:inline-flex;gap:8px;align-items:center;padding:6px 10px;border-radius:999px;background:var(--accent-soft);color:var(--fg);font-size:13px}
+.chip .mono{font-weight:600}
+.chip.none{background:var(--surface-2);color:var(--muted)}
+/* search */
+.search{position:relative}
+.search input{width:100%;font-size:16px;padding:12px 14px 12px 40px}
+.search svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
+.sugg{position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 30px rgb(0 0 0 / .14);max-height:420px;overflow:auto;z-index:20}
+.sugg .it{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.sugg .it:last-child{border-bottom:0}
+.sugg .it.act,.sugg .it:hover{background:var(--accent-soft)}
+.sugg .d{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.sugg .m{font-size:12px;color:var(--muted);min-width:0;overflow-wrap:anywhere}
+.sugg .q{text-align:right;font-family:var(--f-mono);font-size:13px}
+.sugg mark{background:transparent;color:var(--accent);font-weight:700}
+.sugg .empty{padding:14px;color:var(--muted)}
+.hint{font-size:12px;color:var(--muted)}
+/* selected material */
+.sel{border:1px solid var(--accent);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:12px;background:var(--surface)}
+.sel .title{font-size:16px;font-weight:700}
+.kv{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.kv span b{color:var(--fg);font-family:var(--f-mono);font-weight:500}
+.addbar{display:grid;grid-template-columns:120px 1fr auto auto;gap:10px;align-items:end}
+.addbar label{display:flex;flex-direction:column;gap:4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);min-width:0}
+@media (max-width:640px){.addbar{grid-template-columns:1fr 1fr}.addbar button{grid-column:span 1}}
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{text-align:left;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600;background:var(--surface-2);padding:7px 10px;white-space:nowrap}
+td{padding:7px 10px;border-top:1px solid var(--line);vertical-align:top}
+td.n,th.n{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+td.c{font-family:var(--f-mono);font-size:12.5px;white-space:nowrap}
+tr.pick{cursor:pointer}
+tr.pick:hover td{background:var(--accent-soft)}
+tr.chosen td{background:var(--accent-soft)}
+tr.zero td{color:var(--muted)}
+.pill{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+/* recommendation */
+.rec{border:1px solid var(--warn);background:var(--warn-soft);border-radius:var(--r);padding:14px;display:flex;flex-direction:column;gap:10px}
+.rec .h{font-weight:700;color:var(--warn)}
+.rec p{margin:0}
+.rec .tw{background:var(--surface)}
+.totals{display:flex;gap:20px;flex-wrap:wrap;align-items:center}
+.totals .stat .v{font-size:16px}
+.empty-state{color:var(--muted);padding:18px;text-align:center;border:1px dashed var(--line);border-radius:6px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:13.5px;box-shadow:0 8px 24px rgb(0 0 0 / .25);z-index:50;max-width:calc(100% - 32px)}
+.confirm{display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--bad-soft);color:var(--bad);padding:10px 12px;border-radius:6px}
+.loading{display:flex;gap:10px;align-items:center;color:var(--muted)}
+.spin{width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Expiry Vendor Requests</h1>
+      <p class="sub">Upload the stock sheet, build a request for one supplier, check batches, export to Excel.</p>
+    </div>
+  </header>
+
+  <!-- 1. Stock file -->
+  <section class="panel" id="filePanel">
+    <h2>Stock sheet</h2>
+    <div id="fileEmpty">
+      <label class="drop" id="drop" for="fileInput">
+        <b>Drop the stock Excel here, or click to choose</b>
+        <span class="hint">.xlsx / .xls — first sheet is read</span>
+        <span class="cols">Needs: Material · Material Description · Plant · Storage Location · Batch · Unrestricted Quantity · Supplier · Vendor Name · Cost Price (Expiration Date, Barcode optional)</span>
+      </label>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm,.csv" hidden>
+    </div>
+    <div id="fileLoading" class="loading" hidden><div class="spin"></div><span id="loadingMsg">Reading sheet…</span></div>
+    <div id="fileLoaded" hidden>
+      <div class="row">
+        <div class="stats" id="stats"></div>
+        <div class="spacer"></div>
+        <button id="replaceBtn">Upload new sheet</button>
+      </div>
+    </div>
+    <p id="fileErr" class="hint" style="color:var(--bad)" hidden></p>
+  </section>
+
+  <div id="startWrap" class="row" hidden>
+    <button class="primary big" id="createBtn">Create vendor request</button>
+    <span class="hint" id="startHint"></span>
+  </div>
+
+  <!-- 2. Request builder -->
+  <section class="panel" id="reqPanel" hidden>
+    <div class="row" style="margin-bottom:12px">
+      <h2 style="margin:0">Vendor request</h2>
+      <span id="supChip" class="chip none">Supplier: set by first material</span>
+      <div class="spacer"></div>
+      <button class="ghost" id="newReqBtn">New request</button>
+    </div>
+    <div id="newConfirm" class="confirm" hidden>
+      <span>Clear all lines in this request?</span>
+      <button id="newYes">Clear request</button>
+      <button id="newNo">Keep</button>
+    </div>
+
+    <div class="search" style="margin-top:6px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input type="text" id="q" autocomplete="off" placeholder="Search description, material, batch, storage loc, plant, supplier, barcode, cost…" aria-label="Search stock">
+      <div class="sugg" id="sugg" hidden></div>
+    </div>
+    <p class="hint" id="searchHint" style="margin:6px 0 0">Type one letter or more. Use several words to narrow, e.g. <span class="mono">olfen 75</span>.</p>
+
+    <div id="selBox" style="margin-top:14px" hidden></div>
+  </section>
+
+  <section class="panel" id="linesPanel" hidden>
+    <div class="row" style="margin-bottom:12px">
+      <h2 style="margin:0">Request lines</h2>
+      <div class="spacer"></div>
+      <div class="totals" id="totals"></div>
+    </div>
+    <div id="linesBox"></div>
+  </section>
+
+  <section class="panel" id="chgPanel" hidden>
+    <h2>Batch change needed (qty not satisfied in required batch)</h2>
+    <div id="chgBox"></div>
+  </section>
+
+  <div class="row" id="exportRow" hidden>
+    <button class="primary big" id="exportBtn">Export Excel</button>
+    <span class="hint" id="exportHint">Sheet 1: Vendor Request · Sheet 2: Batch Change</span>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtQ = n => (Math.round(n*1000)/1000).toLocaleString("en-US");
+const fmtM = n => (Number(n)||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+let toastT;
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,3200); }
+
+/* ---------------- state ---------------- */
+let DATA = null;            // {fileName, loadedAt, rows:[...]}
+let req = { supCode:"", supName:"", lines:[], changes:[], active:false };
+let selected = null;        // {mat, plant, supCode, prefBatch}
+let pending = null;         // recommendation awaiting decision
+
+const LS_KEY = "evr.request.v1";
+function saveReq(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(req)); }catch(e){} }
+function loadReq(){ try{ const s=localStorage.getItem(LS_KEY); if(s){ const r=JSON.parse(s); if(r && Array.isArray(r.lines)) req=Object.assign(req,r);} }catch(e){} }
+
+/* ---------------- IndexedDB cache of the last sheet ---------------- */
+function idb(){ return new Promise((res,rej)=>{ try{ const o=indexedDB.open("evr",1); o.onupgradeneeded=()=>o.result.createObjectStore("k"); o.onsuccess=()=>res(o.result); o.onerror=()=>rej(o.error);}catch(e){rej(e)} }); }
+async function cachePut(v){ try{ const db=await idb(); await new Promise((res,rej)=>{const tx=db.transaction("k","readwrite"); tx.objectStore("k").put(v,"data"); tx.oncomplete=res; tx.onerror=()=>rej(tx.error);}); }catch(e){} }
+async function cacheGet(){ try{ const db=await idb(); return await new Promise((res,rej)=>{const r=db.transaction("k").objectStore("k").get("data"); r.onsuccess=()=>res(r.result||null); r.onerror=()=>rej(r.error);}); }catch(e){ return null; } }
+
+/* ---------------- parsing ---------------- */
+const norm = s => String(s??"").toLowerCase().replace(/[^a-z0-9]/g,"");
+const FIELDS = {
+  mat:   ["material","materialno","materialnumber","article"],
+  desc:  ["materialdescription","description","desc"],
+  plant: ["plant","site"],
+  sloc:  ["storagelocation","sloc","storage","stloc"],
+  slocName:["storagelocationname"],
+  batch: ["batch","batchno","batchnumber"],
+  qty:   ["unrestricedquantity","unrestrictedquantity","unrestrictedqty","quantity","qty","stock"],
+  exp:   ["expirationdate","expirydate","expiry","sled"],
+  barcode:["barcode","ean","gtin"],
+  supCode:["supplier","vendor","vendorcode","suppliercode"],
+  supName:["vendorname","suppliername"],
+  cost:  ["costprice","cost","unitcost"],
+};
+function mapHeaders(hdr){
+  const n = hdr.map(norm), m = {};
+  for (const [k, alts] of Object.entries(FIELDS)){
+    for (const a of alts){ const i = n.indexOf(a); if (i>=0 && !Object.values(m).includes(i)){ m[k]=i; break; } }
+  }
+  return m;
+}
+function toISO(v){
+  if (v==null || v==="") return "";
+  if (typeof v==="number"){ const d=new Date(Math.round((v-25569)*86400000)); return isNaN(d)?"":d.toISOString().slice(0,10); }
+  if (v instanceof Date) return v.toISOString().slice(0,10);
+  return String(v);
+}
+function parseWorkbook(buf, fileName){
+  const wb = XLSX.read(buf, {type:"array", cellDates:false, dense:true});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const aoa = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:""});
+  let hi = aoa.findIndex(r => r.some(c => norm(c)==="material") && r.some(c => norm(c)==="batch"));
+  if (hi<0) throw new Error("Could not find a header row with 'Material' and 'Batch' columns in the first sheet.");
+  const m = mapHeaders(aoa[hi]);
+  const need = ["mat","desc","batch","qty","supCode"];
+  const miss = need.filter(k => m[k]==null);
+  if (miss.length) throw new Error("Missing columns: " + miss.map(k=>({mat:"Material",desc:"Material Description",batch:"Batch",qty:"Unrestricted Quantity",supCode:"Supplier"})[k]).join(", "));
+  const S = (r,k) => m[k]==null ? "" : String(r[m[k]] ?? "").trim();
+  const rows = [];
+  for (let i=hi+1;i<aoa.length;i++){
+    const r = aoa[i]; const mat = S(r,"mat"); if (!mat) continue;
+    rows.push({
+      mat, desc:S(r,"desc"), plant:S(r,"plant"), sloc:S(r,"sloc"), slocName:S(r,"slocName"),
+      batch:S(r,"batch"), qty:Number(r[m.qty])||0, exp: m.exp==null?"":toISO(r[m.exp]),
+      barcode:S(r,"barcode"), supCode:S(r,"supCode"), supName:S(r,"supName"),
+      cost: m.cost==null?0:(Number(r[m.cost])||0)
+    });
+  }
+  return {fileName, loadedAt:new Date().toISOString(), rows};
+}
+function indexRows(){
+  for (const r of DATA.rows){
+    r.hay = [r.mat,r.desc,r.plant,r.sloc,r.slocName,r.batch,r.supCode,r.supName,r.barcode,r.cost].join(" \u0001 ").toLowerCase();
+  }
+}
+
+/* ---------------- file UI ---------------- */
+async function handleFile(f){
+  if (!f) return;
+  $("fileErr").hidden=true; $("fileEmpty").hidden=true; $("fileLoaded").hidden=true; $("fileLoading").hidden=false;
+  $("loadingMsg").textContent = "Reading " + f.name + "…";
+  await new Promise(r=>setTimeout(r,30));
+  try{
+    const buf = await f.arrayBuffer();
+    DATA = parseWorkbook(new Uint8Array(buf), f.name);
+    if (!DATA.rows.length) throw new Error("The sheet has no data rows.");
+    indexRows();
+    const store = {fileName:DATA.fileName, loadedAt:DATA.loadedAt, rows:DATA.rows.map(({hay,...x})=>x)};
+    cachePut(store);
+    showLoaded();
+    toast(`Loaded ${DATA.rows.length.toLocaleString()} stock lines`);
+  }catch(e){
+    DATA=null; $("fileLoading").hidden=true; $("fileEmpty").hidden=false;
+    $("fileErr").textContent = e.message || String(e); $("fileErr").hidden=false;
+  }
+}
+function showLoaded(){
+  $("fileLoading").hidden=true; $("fileEmpty").hidden=true; $("fileLoaded").hidden=false;
+  const mats=new Set(), sups=new Set(), plants=new Set(); let units=0;
+  for (const r of DATA.rows){ mats.add(r.mat); sups.add(r.supCode); if(r.plant) plants.add(r.plant); units+=r.qty; }
+  const d = new Date(DATA.loadedAt);
+  $("stats").innerHTML = [
+    ["File", esc(DATA.fileName)], ["Plant", esc([...plants].join(", ")||"—")],
+    ["Stock lines", DATA.rows.length.toLocaleString()], ["Materials", mats.size.toLocaleString()],
+    ["Suppliers", sups.size.toLocaleString()], ["Units", fmtQ(units)],
+    ["Loaded", d.toLocaleDateString("en-GB",{day:"2-digit",month:"short"})+" "+d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"})]
+  ].map(([k,v])=>`<div class="stat"><span class="k">${k}</span><span class="v" style="${k==='File'?'font-size:14px;font-family:var(--f-sans)':''}">${v}</span></div>`).join("");
+  $("startWrap").hidden = req.active;
+  $("startHint").textContent = req.lines.length ? `A request with ${req.lines.length} line(s) is in progress.` : "";
+  if (req.active) openRequest();
+}
+const drop=$("drop");
+drop.addEventListener("dragover",e=>{e.preventDefault();drop.classList.add("over")});
+drop.addEventListener("dragleave",()=>drop.classList.remove("over"));
+drop.addEventListener("drop",e=>{e.preventDefault();drop.classList.remove("over");handleFile(e.dataTransfer.files[0])});
+$("fileInput").addEventListener("change",e=>{handleFile(e.target.files[0]); e.target.value="";});
+$("replaceBtn").addEventListener("click",()=>$("fileInput").click());
+
+/* ---------------- request ---------------- */
+$("createBtn").addEventListener("click",()=>{ req.active=true; saveReq(); openRequest(); $("q").focus(); });
+function openRequest(){
+  $("startWrap").hidden=true; $("reqPanel").hidden=false;
+  renderAll();
+}
+$("newReqBtn").addEventListener("click",()=>{ if(!req.lines.length){ resetReq(); return;} $("newConfirm").hidden=false; });
+$("newNo").addEventListener("click",()=>$("newConfirm").hidden=true);
+$("newYes").addEventListener("click",()=>{ $("newConfirm").hidden=true; resetReq(); toast("Request cleared"); });
+function resetReq(){ req={supCode:"",supName:"",lines:[],changes:[],active:true}; selected=null; pending=null; saveReq(); $("q").value=""; renderAll(); $("q").focus(); }
+
+/* reserved qty already used by this request, per material|plant|batch|sloc */
+function reservedMap(){
+  const m=new Map(), add=(k,q)=>m.set(k,(m.get(k)||0)+q);
+  for (const l of req.lines) if (l.fromStock>0) add(`${l.mat}|${l.plant}|${l.batch}|${l.sloc}`, l.fromStock);
+  for (const c of req.changes) if (c.take>0) add(`${c.mat}|${c.plant}|${c.availBatch}|${c.sloc}`, c.take);
+  return m;
+}
+/* stock positions for one material/plant/supplier, with availability after reservations */
+function positions(mat, plant, supCode){
+  const res=reservedMap(), map=new Map();
+  for (const r of DATA.rows){
+    if (r.mat!==mat || r.plant!==plant || r.supCode!==supCode) continue;
+    const k=r.batch+"|"+r.sloc;
+    if (!map.has(k)) map.set(k,{batch:r.batch, sloc:r.sloc, slocName:r.slocName, exp:r.exp, qty:0, cost:r.cost, supName:r.supName, desc:r.desc});
+    map.get(k).qty += r.qty;
+  }
+  const out=[...map.values()].map(p=>({...p, used:res.get(`${mat}|${plant}|${p.batch}|${p.sloc}`)||0}));
+  out.forEach(p=>p.avail=Math.max(0,p.qty-p.used));
+  out.sort((a,b)=> (a.exp||"9999").localeCompare(b.exp||"9999") || b.avail-a.avail);
+  return out;
+}
+/* FEFO allocation */
+function allocate(pos, need){
+  const res=[]; let left=need;
+  for (const p of pos){ if (left<=0) break; if (p.avail<=0) continue; const t=Math.min(p.avail,left); res.push({...p,take:t}); left-=t; }
+  return {alloc:res, short:Math.max(0,left)};
+}
+
+/* ---------------- search ---------------- */
+const qEl=$("q"), sugg=$("sugg");
+let suggItems=[], act=-1, qT;
+qEl.addEventListener("input",()=>{ clearTimeout(qT); qT=setTimeout(runSearch,90); });
+qEl.addEventListener("focus",()=>{ if(qEl.value.trim()) runSearch(); });
+qEl.addEventListener("keydown",e=>{
+  if (sugg.hidden) return;
+  if (e.key==="ArrowDown"){ e.preventDefault(); setAct(Math.min(act+1,suggItems.length-1)); }
+  else if (e.key==="ArrowUp"){ e.preventDefault(); setAct(Math.max(act-1,0)); }
+  else if (e.key==="Enter"){ e.preventDefault(); if (suggItems[act>=0?act:0]) pick(suggItems[act>=0?act:0]); }
+  else if (e.key==="Escape"){ sugg.hidden=true; }
+});
+document.addEventListener("click",e=>{ if(!e.target.closest(".search")) sugg.hidden=true; });
+function setAct(i){ act=i; [...sugg.querySelectorAll(".it")].forEach((el,j)=>el.classList.toggle("act",j===i)); const el=sugg.querySelectorAll(".it")[i]; el&&el.scrollIntoView({block:"nearest"}); }
+function hl(text, toks){
+  let s=esc(text);
+  for (const t of toks){ if(!t) continue; const re=new RegExp("("+esc(t).replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+")","ig"); s=s.replace(re,"<mark>$1</mark>"); }
+  return s;
+}
+function runSearch(){
+  const raw=qEl.value.trim().toLowerCase();
+  if (!raw || !DATA){ sugg.hidden=true; return; }
+  const toks=raw.split(/\s+/);
+  const groups=new Map();
+  for (const r of DATA.rows){
+    if (req.supCode && r.supCode!==req.supCode) continue;
+    let ok=true; for (const t of toks){ if (r.hay.indexOf(t)<0){ ok=false; break; } }
+    if (!ok) continue;
+    const k=r.mat+"|"+r.plant+"|"+r.supCode;
+    let g=groups.get(k);
+    if (!g){ g={mat:r.mat,desc:r.desc,plant:r.plant,supCode:r.supCode,supName:r.supName,cost:r.cost,qty:0,batches:new Set(),slocs:new Set(),hitBatch:"",hitSloc:""}; groups.set(k,g); }
+    g.qty+=r.qty; g.batches.add(r.batch); g.slocs.add(r.sloc);
+    if (!g.hitBatch && toks.some(t=>r.batch.toLowerCase()===t || (t.length>=3 && r.batch.toLowerCase().startsWith(t)))) g.hitBatch=r.batch;
+  }
+  const first=toks[0];
+  let list=[...groups.values()];
+  list.sort((a,b)=>{
+    const as=a.desc.toLowerCase().startsWith(first)?0:1, bs=b.desc.toLowerCase().startsWith(first)?0:1;
+    return as-bs || a.desc.localeCompare(b.desc) || a.supCode.localeCompare(b.supCode);
+  });
+  const total=list.length; list=list.slice(0,60);
+  suggItems=list; act=list.length?0:-1;
+  if (!list.length){
+    sugg.innerHTML=`<div class="empty">No stock matches “${esc(qEl.value.trim())}”${req.supCode?` for supplier ${esc(req.supCode)}`:""}.</div>`;
+  } else {
+    sugg.innerHTML=list.map((g,i)=>`
+      <div class="it${i===0?" act":""}" data-i="${i}">
+        <div class="d">${hl(g.desc,toks)}</div>
+        <div class="q">${fmtQ(g.qty)} pc</div>
+        <div class="m"><span class="mono">${hl(g.mat,toks)}</span> · Plant ${hl(g.plant,toks)} · ${g.batches.size} batch${g.batches.size>1?"es":""} · Loc ${hl([...g.slocs].join(", "),toks)}${g.hitBatch?` · batch <b class="mono">${hl(g.hitBatch,toks)}</b>`:""}<br>${hl(g.supCode,toks)} ${hl(g.supName,toks)}</div>
+        <div class="q" style="color:var(--muted)">${fmtM(g.cost)}</div>
+      </div>`).join("") + (total>list.length?`<div class="empty">Showing 60 of ${total}. Keep typing to narrow.</div>`:"");
+  }
+  sugg.hidden=false;
+  sugg.querySelectorAll(".it").forEach(el=>el.addEventListener("mousedown",e=>{ e.preventDefault(); pick(suggItems[+el.dataset.i]); }));
+}
+function pick(g){
+  selected={mat:g.mat, plant:g.plant, supCode:g.supCode, supName:g.supName, desc:g.desc, cost:g.cost, prefBatch:g.hitBatch||""};
+  pending=null; sugg.hidden=true;
+  renderSel();
+  const qi=$("addQty"); qi&&qi.focus();
+}
+
+/* ---------------- selected material ---------------- */
+function renderSel(){
+  const box=$("selBox");
+  if (!selected){ box.hidden=true; box.innerHTML=""; return; }
+  const s=selected, pos=positions(s.mat,s.plant,s.supCode);
+  const tot=pos.reduce((a,p)=>a+p.avail,0);
+  const other = DATA.rows.filter(r=>r.mat===s.mat && r.plant===s.plant && r.supCode!==s.supCode).reduce((a,r)=>a+r.qty,0);
+  const batchVal = $("addBatch") ? $("addBatch").value : s.prefBatch;
+  box.hidden=false;
+  box.innerHTML=`
+  <div class="sel">
+    <div class="row">
+      <div style="min-width:0">
+        <div class="title">${esc(s.desc)}</div>
+        <div class="kv">
+          <span>Material <b>${esc(s.mat)}</b></span><span>Plant <b>${esc(s.plant)}</b></span>
+          <span>Supplier <b>${esc(s.supCode)}</b> ${esc(s.supName)}</span><span>Cost <b>${fmtM(s.cost)}</b></span>
+          <span>Available now <b>${fmtQ(tot)}</b> pc</span>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <button class="ghost" id="selClose" aria-label="Close material">Close</button>
+    </div>
+    ${other?`<p class="hint" style="margin:0">Also ${fmtQ(other)} pc of this material under other suppliers (not usable in this request).</p>`:""}
+    <div class="tw"><table>
+      <thead><tr><th>Batch</th><th>Storage loc</th><th>Expiry</th><th class="n">Stock</th><th class="n">In request</th><th class="n">Available</th></tr></thead>
+      <tbody>${pos.map(p=>`<tr class="pick${p.avail<=0?" zero":""}${p.batch===batchVal?" chosen":""}" data-b="${esc(p.batch)}">
+        <td class="c">${esc(p.batch)}</td><td>${esc(p.sloc)} <span class="hint">${esc(p.slocName)}</span></td>
+        <td class="c">${esc(p.exp)}</td><td class="n">${fmtQ(p.qty)}</td><td class="n">${p.used?fmtQ(p.used):""}</td><td class="n"><b>${fmtQ(p.avail)}</b></td></tr>`).join("")}</tbody>
+    </table></div>
+    <form class="addbar" id="addForm" autocomplete="off">
+      <label>Qty (pc)<input type="number" id="addQty" min="0" step="any" required></label>
+      <label>Required batch<input type="text" id="addBatch" list="batchList" placeholder="Blank = pick by earliest expiry" value="${esc(batchVal)}"></label>
+      <datalist id="batchList">${pos.map(p=>`<option value="${esc(p.batch)}">${esc(p.sloc)} · ${fmtQ(p.avail)} pc</option>`).join("")}</datalist>
+      <button class="primary" type="submit">Add material</button>
+      <button type="button" id="selCancel">Cancel</button>
+    </form>
+    <div id="recBox"></div>
+  </div>`;
+  $("selClose").onclick=$("selCancel").onclick=()=>{ selected=null; pending=null; renderSel(); qEl.focus(); };
+  box.querySelectorAll("tr.pick").forEach(tr=>tr.addEventListener("click",()=>{ $("addBatch").value=tr.dataset.b; box.querySelectorAll("tr.pick").forEach(x=>x.classList.toggle("chosen",x===tr)); $("addQty").focus(); }));
+  $("addForm").addEventListener("submit",e=>{ e.preventDefault(); tryAdd(); });
+  if (pending) renderRec();
+}
+
+function lineBase(s){ return {mat:s.mat, desc:s.desc, plant:s.plant, supCode:s.supCode, supName:s.supName, cost:s.cost}; }
+const uid = () => Math.random().toString(36).slice(2,10);
+
+function tryAdd(){
+  const s=selected; const qty=Number($("addQty").value); const batch=$("addBatch").value.trim();
+  if (!(qty>0)){ toast("Enter a quantity above 0"); $("addQty").focus(); return; }
+  const pos=positions(s.mat,s.plant,s.supCode);
+  if (!batch){
+    const {alloc,short}=allocate(pos,qty);
+    if (!short){ commitAlloc(s,alloc,qty,"(auto)"); return; }
+    pending={type:"auto", qty, batch:"", inBatch:[], others:alloc, short}; renderRec(); return;
+  }
+  const bl=batch.toLowerCase();
+  const inBatch=pos.filter(p=>p.batch.toLowerCase()===bl);
+  const realBatch=inBatch[0]?.batch || batch;
+  const availB=inBatch.reduce((a,p)=>a+p.avail,0);
+  if (availB>=qty){ commitAlloc(s, allocate(inBatch,qty).alloc, qty, realBatch); return; }
+  const fromB=allocate(inBatch,availB).alloc;
+  const rest=allocate(pos.filter(p=>p.batch.toLowerCase()!==bl), qty-availB);
+  pending={type:"batch", qty, batch:realBatch, found:inBatch.length>0, availB, inBatch:fromB, others:rest.alloc, short:rest.short, otherAvail:pos.filter(p=>p.batch.toLowerCase()!==bl).reduce((a,p)=>a+p.avail,0)};
+  renderRec();
+}
+
+function lockSupplier(s){ if(!req.supCode){ req.supCode=s.supCode; req.supName=s.supName; } }
+
+/* add allocations straight to the request (fully satisfied) */
+function commitAlloc(s, alloc, qty, label){
+  lockSupplier(s);
+  const gid=uid();
+  for (const a of alloc) req.lines.push({...lineBase(s), id:uid(), gid, sloc:a.sloc, batch:a.batch, exp:a.exp, qty:a.take, fromStock:a.take, reqQty:qty, short:0});
+  saveReq(); pending=null;
+  toast(`Added ${fmtQ(qty)} pc ${s.desc}` + (alloc.length>1?` from ${alloc.length} batches`:` · batch ${alloc[0].batch}`));
+  afterAdd();
+}
+function afterAdd(){ selected=null; renderAll(); qEl.value=""; qEl.focus(); }
+
+function renderRec(){
+  const box=$("recBox"); if(!box||!pending) return;
+  const p=pending, s=selected;
+  const altRows=p.others.map(a=>`<tr><td class="c">${esc(a.batch)}</td><td>${esc(a.sloc)} <span class="hint">${esc(a.slocName)}</span></td><td class="c">${esc(a.exp)}</td><td class="n">${fmtQ(a.avail)}</td><td class="n"><b>${fmtQ(a.take)}</b></td></tr>`).join("");
+  let head;
+  if (p.type==="auto") head=`Only ${fmtQ(p.qty-p.short)} pc available across all batches. You asked for ${fmtQ(p.qty)} pc.`;
+  else if (!p.found) head=`Batch ${esc(p.batch)} is not in stock for this material and supplier.`;
+  else head=`Batch ${esc(p.batch)} has only ${fmtQ(p.availB)} pc available. You asked for ${fmtQ(p.qty)} pc — short ${fmtQ(p.qty-p.availB)} pc.`;
+  const takeTotal=(p.inBatch||[]).reduce((a,x)=>a+x.take,0)+p.others.reduce((a,x)=>a+x.take,0);
+  box.innerHTML=`
+  <div class="rec" role="alert">
+    <div class="h">${head}</div>
+    ${p.others.length?`<p>Recommended: take the remaining qty from these batches (earliest expiry first).</p>
+    <div class="tw"><table><thead><tr><th>Available batch</th><th>Storage loc</th><th>Expiry</th><th class="n">Available</th><th class="n">Take</th></tr></thead><tbody>${altRows}</tbody></table></div>`
+    :`<p>No other batch of this material is available for supplier ${esc(s.supCode)}.</p>`}
+    ${p.short?`<p><span class="pill bad">Still short ${fmtQ(p.short)} pc</span> even after using every available batch.</p>`:""}
+    <div class="row">
+      ${p.type==="batch"?`<button class="primary" id="recKeep">Add ${fmtQ(p.qty)} pc on batch ${esc(p.batch)} (log batch change)</button>`:""}
+      ${takeTotal>0?`<button ${p.type==="auto"?'class="primary"':""} id="recSplit">Change batch: take ${fmtQ(takeTotal)} pc from ${p.type==="batch"&&p.availB>0?"this + ":""}recommended batches</button>`:""}
+      ${p.type==="auto"?`<button id="recAutoKeep">Add ${fmtQ(p.qty)} pc anyway (log shortage)</button>`:""}
+      <button class="ghost" id="recCancel">Cancel</button>
+    </div>
+  </div>`;
+  $("recCancel").onclick=()=>{ pending=null; box.innerHTML=""; };
+  $("recKeep") && ($("recKeep").onclick=()=>keepAsEntered());
+  $("recAutoKeep") && ($("recAutoKeep").onclick=()=>keepAsEntered());
+  $("recSplit") && ($("recSplit").onclick=()=>{
+    const all=[...(p.inBatch||[]),...p.others];
+    lockSupplier(s); const gid=uid();
+    for (const a of all) req.lines.push({...lineBase(s), id:uid(), gid, sloc:a.sloc, batch:a.batch, exp:a.exp, qty:a.take, fromStock:a.take, reqQty:p.qty, short:0});
+    if (p.short) logChanges(s,gid,p.qty,p.batch||"(any)",p.short,[]);
+    saveReq(); pending=null; toast(`Added ${fmtQ(takeTotal)} pc from ${all.length} batch${all.length>1?"es":""}`); afterAdd();
+  });
+}
+/* keep entered qty on required batch; write recommended alternates to the Batch Change sheet */
+function keepAsEntered(){
+  const p=pending, s=selected; lockSupplier(s); const gid=uid();
+  const fromB=p.inBatch||[];
+  const main=fromB[0] || (p.type==="auto"? (p.others[0]||null) : null);
+  const short=p.type==="batch" ? p.qty-p.availB : p.short;
+  const batch=p.type==="batch" ? p.batch : (main?main.batch:"");
+  const sloc= main ? main.sloc : "";
+  const fromStock = p.type==="batch" ? p.availB : (p.qty-p.short);
+  if (p.type==="auto"){
+    // stock lines for what exists, plus shortage on the last line
+    p.others.forEach((a,i)=>req.lines.push({...lineBase(s), id:uid(), gid, sloc:a.sloc, batch:a.batch, exp:a.exp, qty:a.take+(i===p.others.length-1?p.short:0), fromStock:a.take, reqQty:p.qty, short:i===p.others.length-1?p.short:0}));
+    if (!p.others.length) req.lines.push({...lineBase(s), id:uid(), gid, sloc, batch:"", exp:"", qty:p.qty, fromStock:0, reqQty:p.qty, short:p.qty});
+    logChanges(s,gid,p.qty,"(any)",p.short,[]);
+  } else {
+    // single line with full entered qty on the required batch; stock reservation only for what the batch really has
+    if (fromB.length>1){
+      fromB.forEach((a,i)=>req.lines.push({...lineBase(s), id:uid(), gid, sloc:a.sloc, batch:a.batch, exp:a.exp, qty:a.take+(i===0?short:0), fromStock:a.take, reqQty:p.qty, short:i===0?short:0}));
+    } else {
+      req.lines.push({...lineBase(s), id:uid(), gid, sloc, batch, exp:main?main.exp:"", qty:p.qty, fromStock, reqQty:p.qty, short});
+    }
+    logChanges(s,gid,p.qty,batch,short,p.others);
+  }
+  saveReq(); pending=null; toast(`Added ${fmtQ(p.qty)} pc · ${fmtQ(short)} pc logged in Batch Change`); afterAdd();
+}
+function logChanges(s,gid,reqQty,reqBatch,short,alts){
+  if (!alts.length){
+    req.changes.push({gid, mat:s.mat, desc:s.desc, plant:s.plant, sloc:"", reqQty, remQty:short, availBatch:"Not available", reqBatch, availQty:0, take:0, exp:""});
+    return;
+  }
+  let left=short;
+  for (const a of alts){
+    req.changes.push({gid, mat:s.mat, desc:s.desc, plant:s.plant, sloc:a.sloc, reqQty, remQty:left, availBatch:a.batch, reqBatch, availQty:a.avail, take:a.take, exp:a.exp});
+    left-=a.take;
+  }
+  if (left>0) req.changes.push({gid, mat:s.mat, desc:s.desc, plant:s.plant, sloc:"", reqQty, remQty:left, availBatch:"Not available", reqBatch, availQty:0, take:0, exp:""});
+}
+
+/* ---------------- lines & changes ---------------- */
+function renderAll(){
+  const chip=$("supChip");
+  if (req.supCode){ chip.className="chip"; chip.innerHTML=`Supplier <span class="mono">${esc(req.supCode)}</span> ${esc(req.supName)}`; $("searchHint").innerHTML=`Search is limited to supplier <b>${esc(req.supCode)}</b>. Remove all lines to change supplier.`; }
+  else { chip.className="chip none"; chip.textContent="Supplier: set by first material"; $("searchHint").innerHTML=`Type one letter or more. Use several words to narrow, e.g. <span class="mono">olfen 75</span>.`; }
+  renderSel();
+  const has=req.lines.length>0;
+  $("linesPanel").hidden=!req.active; $("exportRow").hidden=!has;
+  $("chgPanel").hidden=!req.changes.length;
+  if (!req.active) return;
+  if (!has){ $("linesBox").innerHTML=`<div class="empty-state">No materials yet. Search above, pick a material, enter qty and batch.</div>`; $("totals").innerHTML=""; }
+  else{
+    const units=req.lines.reduce((a,l)=>a+l.qty,0), val=req.lines.reduce((a,l)=>a+l.qty*l.cost,0), sh=req.lines.reduce((a,l)=>a+l.short,0);
+    $("totals").innerHTML=`<div class="stat"><span class="k">Lines</span><span class="v">${req.lines.length}</span></div><div class="stat"><span class="k">Units</span><span class="v">${fmtQ(units)}</span></div><div class="stat"><span class="k">Value at cost</span><span class="v">${fmtM(val)}</span></div>${sh?`<div class="stat"><span class="k">Short</span><span class="v" style="color:var(--bad)">${fmtQ(sh)}</span></div>`:""}`;
+    $("linesBox").innerHTML=`<div class="tw"><table>
+      <thead><tr><th>Material</th><th>Description</th><th>Plant</th><th>Storage</th><th>Batch</th><th>Expiry</th><th class="n">Qty</th><th class="n">Cost</th><th class="n">Value</th><th>Status</th><th></th></tr></thead>
+      <tbody>${req.lines.map(l=>`<tr>
+        <td class="c">${esc(l.mat)}</td><td>${esc(l.desc)}</td><td class="c">${esc(l.plant)}</td><td class="c">${esc(l.sloc)}</td><td class="c">${esc(l.batch)}</td><td class="c">${esc(l.exp)}</td>
+        <td class="n">${fmtQ(l.qty)}</td><td class="n">${fmtM(l.cost)}</td><td class="n">${fmtM(l.qty*l.cost)}</td>
+        <td>${l.short?`<span class="pill bad">Short ${fmtQ(l.short)}</span>`:`<span class="pill ok">In stock</span>`}</td>
+        <td><button class="ghost" data-del="${l.id}" aria-label="Remove line">Remove</button></td></tr>`).join("")}</tbody></table></div>`;
+    $("linesBox").querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>delLine(b.dataset.del));
+  }
+  if (req.changes.length){
+    $("chgBox").innerHTML=`<div class="tw"><table>
+      <thead><tr><th>Material</th><th>Description</th><th>Plant</th><th>Available storage loc</th><th class="n">Required qty</th><th class="n">Remaining qty</th><th>Available batch</th><th>Required batch</th><th class="n">Batch avail.</th><th class="n">Take</th></tr></thead>
+      <tbody>${req.changes.map(c=>`<tr>
+        <td class="c">${esc(c.mat)}</td><td>${esc(c.desc)}</td><td class="c">${esc(c.plant)}</td><td class="c">${esc(c.sloc)||"—"}</td>
+        <td class="n">${fmtQ(c.reqQty)}</td><td class="n">${fmtQ(c.remQty)}</td>
+        <td class="c">${c.availBatch==="Not available"?`<span class="pill bad">Not available</span>`:esc(c.availBatch)}</td><td class="c">${esc(c.reqBatch)}</td>
+        <td class="n">${c.availQty?fmtQ(c.availQty):""}</td><td class="n">${c.take?fmtQ(c.take):""}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+}
+function delLine(id){
+  const l=req.lines.find(x=>x.id===id); if(!l) return;
+  req.lines=req.lines.filter(x=>x.id!==id);
+  if (!req.lines.some(x=>x.gid===l.gid)) req.changes=req.changes.filter(c=>c.gid!==l.gid);
+  if (!req.lines.length){ req.supCode=""; req.supName=""; req.changes=[]; }
+  saveReq(); renderAll(); toast("Line removed");
+}
+
+/* ---------------- export ---------------- */
+$("exportBtn").addEventListener("click", exportXlsx);
+async function exportXlsx(){
+  const H1=["MATERIAL","DESCRIPTION","PLANT","STORAGE","BATCH","SUPPLIER","COST PRICE","QTY","VENDOR NAME","EXPIRY DATE"];
+  const r1=req.lines.map(l=>[l.mat,l.desc,l.plant,l.sloc,l.batch,l.supCode,l.cost,l.qty,l.supName,l.exp]);
+  const H2=["MATERIAL","DESCRIPTION","PLANT","AVAILABLE STORAGE LOCATION","REQUIRED QTY","REMAINING QTY","AVAILABLE BATCH","REQUIRED BATCH","AVAILABLE QTY IN BATCH","TAKE QTY FROM BATCH","EXPIRY DATE"];
+  const r2=req.changes.map(c=>[c.mat,c.desc,c.plant,c.sloc,c.reqQty,c.remQty,c.availBatch,c.reqBatch,c.availQty||"",c.take||"",c.exp]);
+  const ws1=XLSX.utils.aoa_to_sheet([H1,...r1]); ws1["!cols"]=[10,38,7,9,14,11,11,8,30,12].map(w=>({wch:w}));
+  const ws2=XLSX.utils.aoa_to_sheet([H2,...r2]); ws2["!cols"]=[10,38,7,14,12,13,16,16,12,12,12].map(w=>({wch:w}));
+  // keep codes as text
+  [ws1,ws2].forEach(ws=>{ const rg=XLSX.utils.decode_range(ws["!ref"]); for(let R=1;R<=rg.e.r;R++){ for (const C of (ws===ws1?[0,2,3,4,5]:[0,2,3,6,7])){ const a=XLSX.utils.encode_cell({r:R,c:C}); if(ws[a]){ ws[a].t="s"; ws[a].v=String(ws[a].v); } } } });
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws1,"Vendor Request");
+  XLSX.utils.book_append_sheet(wb,ws2,"Batch Change");
+  const d=new Date(), ds=d.getFullYear()+String(d.getMonth()+1).padStart(2,"0")+String(d.getDate()).padStart(2,"0");
+  const name=`Vendor_Request_${req.supCode}_${(req.supName||"").replace(/[^A-Za-z0-9]+/g,"_").replace(/^_|_$/g,"").slice(0,40)}_${ds}.xlsx`;
+  const out=XLSX.write(wb,{bookType:"xlsx",type:"array"});
+  const blob=new Blob([out],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  if (window.claude && typeof window.claude.use==="function"){
+    const dl=await window.claude.use("downloads");
+    if (!dl){ toast("Saving files isn't available in this view"); return; }
+    try{ await dl.save({filename:name, data:blob}); toast("Excel saved"); }
+    catch(e){ if(e&&e.code==="declined") toast("Save cancelled"); else if(e&&e.code==="rate_limited") toast("A save prompt is already open"); else toast("Could not save: "+(e&&e.message||"unavailable")); }
+  } else {
+    XLSX.writeFile(wb,name);
+  }
+}
+
+/* ---------------- boot ---------------- */
+loadReq();
+(async()=>{
+  const c=await cacheGet();
+  if (c && c.rows && c.rows.length){ DATA=c; indexRows(); showLoaded(); }
+  else if (req.active){ $("startWrap").hidden=true; }
+})();
+})();
+</script>
+
+</body>
+</html>
